@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Postmark - Interview and Project Guide</title>
+  <style>
+    @page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+    body { font-family: Arial, sans-serif; color: #172321; line-height: 1.45; font-size: 10.5pt; }
+    h1, h2, h3 { color: #195e4d; page-break-after: avoid; }
+    h1 { font-size: 27pt; margin: 0 0 8px; }
+    h2 { font-size: 18pt; border-bottom: 2px solid #d9ded8; padding-bottom: 4px; margin-top: 24px; }
+    h3 { font-size: 13pt; margin-top: 17px; }
+    p { margin: 6px 0 9px; }
+    ul, ol { margin-top: 4px; }
+    li { margin: 3px 0; }
+    .cover { page-break-after: always; padding-top: 55mm; }
+    .subtitle { color: #68746f; font-size: 14pt; }
+    .tag { display: inline-block; background: #e0eee7; padding: 5px 8px; margin: 3px; border-radius: 3px; }
+    .box { border-left: 4px solid #195e4d; background: #e9ede6; padding: 9px 12px; margin: 10px 0; }
+    .warning { border-left-color: #bd7c26; background: #fff4df; }
+    .danger { border-left-color: #bf4937; background: #f8e8e2; }
+    code, pre { font-family: Consolas, monospace; font-size: 9pt; }
+    pre { background: #f4f5f2; border: 1px solid #d9ded8; padding: 9px; white-space: pre-wrap; }
+    table { width: 100%; border-collapse: collapse; margin: 9px 0 14px; }
+    th { background: #195e4d; color: white; text-align: left; }
+    th, td { border: 1px solid #cfd7d0; padding: 6px; vertical-align: top; }
+    tr { page-break-inside: avoid; }
+    .small { font-size: 9pt; color: #68746f; }
+    .qa { page-break-inside: avoid; margin-bottom: 12px; }
+    .q { font-weight: bold; color: #195e4d; }
+    .answer { margin-left: 12px; }
+    .page-break { page-break-before: always; }
+  </style>
+</head>
+<body>
+  <section class="cover">
+    <div class="small">PROJECT INTERVIEW DOSSIER · 30 SEPTEMBER 2026</div>
+    <h1>Postmark</h1>
+    <div class="subtitle">Fake Job Posting Screening Application</div>
+    <p style="margin-top:28px">A complete, code-grounded preparation guide for explaining the project on a resume, in a technical interview, and in a behavioral/project discussion.</p>
+    <p><span class="tag">Python</span><span class="tag">Streamlit</span><span class="tag">pandas</span><span class="tag">scikit-learn</span><span class="tag">SQLite</span><span class="tag">NLP</span></p>
+    <div class="box" style="margin-top:30px"><b>One-line explanation:</b> Postmark is a local Streamlit application that combines job-posting text fields, converts them into TF-IDF features, compares Logistic Regression, Multinomial Naive Bayes, and a soft-voting ensemble, and presents a recall-aware fraud-screening signal while storing only a minimal screening summary.</div>
+    <p class="small">This guide describes the implementation that exists in the repository. It deliberately distinguishes implemented behavior from recommended future improvements.</p>
+  </section>
+
+  <h2>1. Executive summary</h2>
+  <p>Postmark addresses a practical trust-and-safety problem: job seekers often need a fast second opinion about language associated with employment scams. The application accepts a job posting, evaluates its text with a supervised binary classifier, and gives a human-readable screening result. It is a screening aid, not an autonomous decision-maker.</p>
+  <h3>What the application does</h3>
+  <ul>
+    <li>Loads a labeled CSV or ZIP dataset from a configured path, project folder, Downloads folder, or an in-memory synthetic fallback.</li>
+    <li>Accepts common label-column names and normalizes numeric or textual labels into genuine (0) and fraudulent (1).</li>
+    <li>Combines relevant job fields into one labeled text string, preserving field names such as <code>title:</code> and <code>requirements:</code>.</li>
+    <li>Uses TF-IDF with English stop-word removal, unigrams and bigrams, sublinear term frequency, and a 30,000-feature cap.</li>
+    <li>Compares Logistic Regression, Multinomial Naive Bayes, and a weighted soft-voting ensemble.</li>
+    <li>Evaluates on a stratified 75/25 hold-out split using accuracy, precision, recall, and F1.</li>
+    <li>Refits each model on all labeled rows after comparison, so all three are available for screening.</li>
+    <li>Shows a risk label, model score, separate phrase cues, model metrics, dataset information, and recent screening history.</li>
+    <li>Stores only title, result, score, model name, and timestamp in SQLite; the original job description is not saved.</li>
+  </ul>
+  <div class="box warning"><b>Important honesty point:</b> The score is a classifier output, not a calibrated probability. If the synthetic fallback is active, its metrics are only for walkthrough behavior and must not be presented as production evidence.</div>
+
+  <h2>2. Repository map</h2>
+  <table>
+    <tr><th>File</th><th>Responsibility</th><th>How to discuss it</th></tr>
+    <tr><td><code>app.py</code></td><td>Streamlit UI, session state, training triggers, prediction flow, safety messaging, metrics and history display.</td><td>The orchestration layer: it connects user actions to loader, detector and storage modules.</td></tr>
+    <tr><td><code>detector.py</code></td><td>Text composition, label detection/normalization, model construction, evaluation, full-data refit and prediction.</td><td>The ML/domain layer. This is the most important file for technical discussion.</td></tr>
+    <tr><td><code>dataset_loader.py</code></td><td>CSV/ZIP ingestion, archive member selection, file-size validation and default dataset discovery.</td><td>The input boundary, including practical validation and safe in-memory ZIP reading.</td></tr>
+    <tr><td><code>demo_data.py</code></td><td>Creates synthetic walkthrough rows when no local labeled data is available.</td><td>A development/demo fallback, explicitly not a benchmark.</td></tr>
+    <tr><td><code>storage.py</code></td><td>SQLite schema and parameterized insert/query functions for recent screening summaries.</td><td>A small persistence layer designed around data minimization.</td></tr>
+    <tr><td><code>tests/test_detector.py</code></td><td>Six unittest cases covering text handling, labels, training, prediction, storage privacy and ZIP loading.</td><td>Evidence that the core behavior is testable independently of the UI.</td></tr>
+    <tr><td><code>requirements.txt</code></td><td>Version ranges for pandas, scikit-learn and Streamlit.</td><td>Defines the runtime dependency contract.</td></tr>
+    <tr><td><code>README.md</code></td><td>Setup commands, data format, limitations and usage instructions.</td><td>The operational documentation and responsible-use contract.</td></tr>
+    <tr><td><code>postmark.db</code></td><td>Local SQLite file created/used at runtime.</td><td>Runtime state, not application logic; it is ignored by <code>.gitignore</code>.</td></tr>
+  </table>
+  <p>There is no separate frontend framework, REST API, authentication system, cloud service, model registry, migration system, Dockerfile, or deployment configuration in the current repository. Streamlit renders the interface directly from Python.</p>
+
+  <h2>3. Architecture and runtime flow</h2>
+  <pre>
+User opens Streamlit
+        |
+        v
+app.py initializes SQLite and session state
+        |
+        +--> dataset_loader.py finds CSV/ZIP
+        |       (or demo_data.py creates synthetic data)
+        |
+        +--> detector.train_and_compare(frame)
+        |       1. find/normalize labels
+        |       2. compose text
+        |       3. stratified split
+        |       4. TF-IDF fit on train only
+        |       5. train/evaluate 3 models
+        |       6. refit models on all rows
+        |
+        v
+Sidebar selects model; form collects job fields
+        |
+        v
+detector.predict_post(selected_model, record)
+        |
+        +--> app displays label, score and independent phrase cues
+        +--> storage.save_prediction(summary only)
+        |
+        v
+Model lab displays metrics, source and recent SQLite history
+  </pre>
+  <h3>Why this structure is effective</h3>
+  <ul>
+    <li>UI code does not contain model mathematics.</li>
+    <li>Data loading is isolated from training, so local files and uploads share validation rules.</li>
+    <li>Core ML functions accept pandas records/dataframes and can be tested without starting Streamlit.</li>
+    <li>Persistence is isolated, making the privacy policy visible and testable.</li>
+    <li>The design is small enough for a portfolio project but leaves clear seams for production hardening.</li>
+  </ul>
+
+  <h2>4. Startup and user journey</h2>
+  <ol>
+    <li><b>Startup:</b> importing <code>app.py</code> calls <code>initialize_database()</code>, then configures the Streamlit page.</li>
+    <li><b>Initial training:</b> <code>MODEL_SOURCE_VERSION</code> is checked in session state. When the version is new for the session, a default dataset is loaded or synthetic data is built and <code>train_and_compare</code> runs.</li>
+    <li><b>Sidebar:</b> the user can upload CSV/ZIP data, train from it, select one of the three classifiers, or reload the default source.</li>
+    <li><b>Screening form:</b> the user enters title, company profile, location, description, requirements, benefits and salary range. Sample buttons populate two synthetic examples.</li>
+    <li><b>Prediction:</b> the selected model receives the same field-composition logic used during training. Empty text is rejected explicitly.</li>
+    <li><b>Presentation:</b> the UI shows a binary category, a score bar, an uncertainty band for scores from 0.4 through 0.6, and fixed phrase-cue checks.</li>
+    <li><b>Persistence:</b> the title and result summary are inserted into SQLite. Full text is intentionally omitted.</li>
+    <li><b>Model lab:</b> metrics and recent history are shown, and the synthetic walkthrough CSV can be downloaded.</li>
+  </ol>
+
+  <h2>5. Data ingestion in detail</h2>
+  <h3>Default search order</h3>
+  <ol>
+    <li><code>POSTMARK_DATASET_PATH</code>, if set and the path exists.</li>
+    <li><code>fake_job_postings.csv</code> beside <code>app.py</code>.</li>
+    <li><code>~/Downloads/archive (4).zip</code>.</li>
+    <li>No dataset: synthetic walkthrough corpus.</li>
+  </ol>
+  <h3>CSV and ZIP behavior</h3>
+  <p>Both filesystem and uploaded bytes are supported. ZIP archives are read without extracting members to disk. The loader selects <code>fake_job_postings.csv</code> when present; otherwise it accepts a ZIP with exactly one CSV and rejects ambiguous archives. CSV content is capped at 200 MB. A malformed uploaded ZIP raises a clear validation error.</p>
+  <h3>Labels</h3>
+  <p>Accepted label-column names are <code>fraudulent</code>, <code>is_fraudulent</code>, <code>label</code>, <code>class</code>, and <code>target</code>. Matching is case-insensitive after trimming column names. Positive values include 1, true, yes, fake, fraud, fraudulent and scam. Negative values include 0, false, no, real, legitimate, genuine and not fraudulent. At least four examples of each class are required.</p>
+  <p>The minimum-class rule is intentionally conservative: a train/test split with too few examples can become unstable or fail to represent both classes. It is a usability guard, not a guarantee of statistical quality.</p>
+
+  <h2>6. Text representation and feature engineering</h2>
+  <p><code>compose_text</code> iterates over a fixed set of fields: title, location, department, salary range, company profile, description, requirements, benefits, employment type, required experience, required education, industry and function. Missing values and blank strings are skipped.</p>
+  <pre>title: remote payment processing agent location: remote
+description: earn thousands weekly no interview
+requirements: send bank details immediately</pre>
+  <p>Field names are included as tokens. This preserves a small amount of structural information without building separate feature pipelines for every column. For example, a word in a requirement field can remain distinguishable from a word in a company profile field.</p>
+  <h3>TF-IDF settings</h3>
+  <table>
+    <tr><th>Setting</th><th>Value</th><th>Reason</th></tr>
+    <tr><td>stop_words</td><td><code>english</code></td><td>Removes common words with limited discriminative value.</td></tr>
+    <tr><td>ngram_range</td><td><code>(1, 2)</code></td><td>Uses individual words and two-word phrases such as “bank details” or “no experience”.</td></tr>
+    <tr><td>max_features</td><td>30,000</td><td>Caps memory and computation while retaining a useful vocabulary.</td></tr>
+    <tr><td>min_df</td><td>1</td><td>Keeps rare terms, useful for small datasets but potentially noisier.</td></tr>
+    <tr><td>sublinear_tf</td><td><code>True</code></td><td>Uses a logarithmic term-frequency effect so repetition does not dominate linearly.</td></tr>
+  </table>
+  <div class="box"><b>Interview explanation:</b> TF-IDF is a strong baseline here because job posts are sparse text, training is fast, the feature space is understandable, and it works well with linear models. It is more practical for this project than a large language model because the goal is a lightweight local screening tool.</div>
+
+  <h2>7. Models, evaluation and selection</h2>
+  <h3>Logistic Regression</h3>
+  <p>Logistic Regression is a linear classifier over the sparse TF-IDF vector. <code>class_weight="balanced"</code> reduces the tendency to ignore the minority class when the dataset is imbalanced. <code>max_iter=1000</code> gives optimization enough iterations, and <code>random_state=42</code> makes the configuration reproducible.</p>
+  <h3>Multinomial Naive Bayes</h3>
+  <p>Multinomial Naive Bayes is a classic fast text baseline. It works with non-negative TF-IDF values and uses <code>alpha=0.5</code> smoothing to avoid zero-probability effects for unseen features.</p>
+  <h3>Soft-voting ensemble</h3>
+  <p>The ensemble combines the two estimators using probability outputs with weights 2:1 in favor of Logistic Regression. This can smooth individual model behavior, but the weights are a design choice that should be validated rather than assumed to be universally optimal.</p>
+  <h3>Evaluation sequence</h3>
+  <ol>
+    <li>Drop rows with missing labels.</li>
+    <li>Normalize labels.</li>
+    <li>Split text and labels with <code>test_size=0.25</code>, <code>random_state=42</code> and <code>stratify=labels</code>.</li>
+    <li>Fit the vectorizer only on training text, then transform the test text. This prevents test vocabulary from influencing training.</li>
+    <li>Fit all three classifiers on training vectors.</li>
+    <li>Compute accuracy, precision, recall and F1 on the held-out vectors.</li>
+    <li>Sort the displayed metric table by F1.</li>
+    <li>Clone the vectorizer, fit it on all text, and refit every model on all labels for final screening.</li>
+  </ol>
+  <h3>Best versus recommended model</h3>
+  <p><code>best_model</code> is the model with the highest hold-out F1. <code>recommended_model</code> is selected by highest recall and then highest precision. This is deliberate: missing a fraudulent post can be more harmful than sending a legitimate post for human review. The UI therefore defaults to a recall-oriented choice rather than blindly selecting the highest F1.</p>
+
+  <h2>8. Prediction behavior and safety UX</h2>
+  <p><code>predict_post</code> composes text, rejects an entirely empty record, calls <code>predict_proba</code>, locates the probability for class 1 by reading <code>model.classes_</code>, and returns a binary label at a threshold of 0.5 plus the fraud-class score.</p>
+  <p>The UI uses three presentation bands: scores from 0.4 to 0.6 are “Elevated risk” and visually marked for review; outside that band, a positive result is “Higher risk” and a negative result is “Lower risk.” This is a communication choice, not a change to the classifier threshold.</p>
+  <p>Phrase cues are a separate deterministic checklist for phrases involving upfront payment, sensitive financial details, unusually high pay, urgency and avoiding an interview. The app explicitly says these cues are not an explanation of the model decision. This distinction matters because a post can receive a high model score without containing one of the exact hard-coded phrases.</p>
+  <div class="box danger"><b>Responsible-use boundary:</b> The model must not be the sole basis for rejecting an employer or accusing a person of fraud. Text-only classification can miss scams, flag legitimate posts, and become stale as scam wording changes. Independent verification is required.</div>
+
+  <h2>9. Persistence and privacy</h2>
+  <p>SQLite is used because this is a local, lightweight, single-user-style application. The table is created if missing:</p>
+  <pre>predictions(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_title TEXT NOT NULL,
+  is_fraudulent INTEGER NOT NULL CHECK (is_fraudulent IN (0, 1)),
+  fraud_score REAL NOT NULL CHECK (fraud_score >= 0 AND fraud_score <= 1),
+  model_name TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+)</pre>
+  <p>Writes use parameterized SQL, and the recent-history query clamps the requested limit between 1 and 100. The code stores no description, requirements, company profile, or other source text. The test explicitly verifies that the returned history does not include a description.</p>
+  <p>Data minimization reduces exposure, but it is not full security: a local SQLite file can still be read by anyone with filesystem access, titles may contain personal information, and there is no authentication or encryption in this version.</p>
+
+  <h2>10. Testing and verification</h2>
+  <table>
+    <tr><th>Test</th><th>What it proves</th></tr>
+    <tr><td>Empty fields in <code>compose_text</code></td><td>Missing values do not create junk tokens.</td></tr>
+    <tr><td>Case-insensitive label discovery</td><td>Dataset column capitalization does not break ingestion.</td></tr>
+    <tr><td>Three-model training and prediction</td><td>All expected models, metrics columns, split counts and prediction range work together.</td></tr>
+    <tr><td>Insufficient/single-class data</td><td>Training fails clearly instead of producing an unusable classifier.</td></tr>
+    <tr><td>SQLite privacy summary</td><td>Results persist and raw description content is not returned.</td></tr>
+    <tr><td>CSV inside ZIP</td><td>Both filesystem and upload loaders read the same archive format.</td></tr>
+  </table>
+  <p>Verification command:</p>
+  <pre>python -m unittest discover -s tests -v</pre>
+  <p>Current verification result: all 6 tests pass. The tests do not yet cover Streamlit browser interactions, every label alias, malformed CSV variants, threshold tuning, cross-validation, or production-scale performance.</p>
+
+  <h2>11. How to run and demo it</h2>
+  <pre>python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m streamlit run app.py</pre>
+  <ol>
+    <li>Open the local Streamlit URL.</li>
+    <li>Explain that the app may use synthetic walkthrough data if no labeled dataset is found.</li>
+    <li>Click “Load established role,” analyze it, and show the lower-risk result.</li>
+    <li>Click “Load suspicious offer,” analyze it, and show the elevated/higher-risk result and phrase cues.</li>
+    <li>Open Model lab to explain hold-out metrics, the data source and the privacy-preserving history table.</li>
+    <li>If available, upload the labeled Kaggle CSV/ZIP and explain that the models are retrained and refit.</li>
+  </ol>
+
+  <h2>12. Resume-ready wording</h2>
+  <h3>Short project entry</h3>
+  <p><b>Postmark — Fake Job Posting Screening | Python, Streamlit, scikit-learn, pandas, SQLite</b><br>
+  Built a local NLP screening application that combines job-post fields, extracts TF-IDF uni/bi-gram features, compares Logistic Regression, Multinomial Naive Bayes and a weighted soft-voting ensemble, and evaluates them with stratified hold-out accuracy, precision, recall and F1. Added CSV/ZIP ingestion validation, recall-oriented model recommendation, human-readable risk cues, and privacy-conscious SQLite history that excludes full job-post text.</p>
+  <h3>30-second pitch</h3>
+  <p>“I built Postmark to give job seekers a second opinion on suspicious job-post language. The app is a Streamlit front end over a small scikit-learn pipeline. It normalizes common labeled datasets, combines relevant fields into text, uses TF-IDF with unigrams and bigrams, and compares two complementary classifiers plus a soft-voting ensemble. I use stratification because fraud data can be imbalanced, report precision/recall/F1, and default toward recall because missing a scam is costly. I also separated deterministic phrase cues from the model output so I do not pretend they explain the classifier. Screening history is stored in SQLite without the original description.”</p>
+  <h3>Do not claim</h3>
+  <ul><li>Do not claim production-grade accuracy unless you have measured it on a real, representative dataset.</li><li>Do not call the score a probability or the app an automated fraud adjudicator.</li><li>Do not claim an API, authentication, deep learning, explainable AI, or cloud deployment; those are not in this repository.</li></ul>
+
+  <h2 class="page-break">13. Interview questions and strong answers</h2>
+  <div class="qa"><div class="q">Q1. What problem does this project solve?</div><div class="answer">It screens job-posting language for signals associated with employment scams, giving a human reviewer a fast second opinion. It is intentionally a screening aid rather than a final decision system.</div></div>
+  <div class="qa"><div class="q">Q2. Walk me through the architecture.</div><div class="answer">Streamlit provides the UI and orchestration. <code>dataset_loader.py</code> validates and reads CSV/ZIP input. <code>detector.py</code> handles text composition, labels, vectorization, training, evaluation and prediction. <code>storage.py</code> initializes SQLite and stores only a summary. <code>demo_data.py</code> provides a synthetic fallback. Core logic is tested independently in <code>tests/test_detector.py</code>.</div></div>
+  <div class="qa"><div class="q">Q3. Why did you choose TF-IDF?</div><div class="answer">The input is sparse, natural-language text and the project needs a fast, local, explainable baseline. TF-IDF is computationally inexpensive, works well with linear text classifiers, and lets us capture both individual words and short phrases without requiring a large model.</div></div>
+  <div class="qa"><div class="q">Q4. Why include bigrams?</div><div class="answer">Many scam cues are multi-word expressions, such as “bank details,” “no experience,” or “pay a fee.” Bigrams capture some phrase meaning that unigrams lose while keeping the feature space manageable.</div></div>
+  <div class="qa"><div class="q">Q5. Why compare Logistic Regression and Naive Bayes?</div><div class="answer">They are strong, fast and complementary text baselines. Logistic Regression learns a discriminative linear boundary and supports class balancing. Naive Bayes is simple and often competitive on word-frequency-style text problems. Comparing them is more defensible than assuming one model is best.</div></div>
+  <div class="qa"><div class="q">Q6. Why use an ensemble?</div><div class="answer">The soft-voting ensemble combines their probability outputs. The current implementation weights Logistic Regression twice as heavily as Naive Bayes. It can be more stable than either model alone, but I would validate the weights with cross-validation rather than treat 2:1 as universally correct.</div></div>
+  <div class="qa"><div class="q">Q7. Why is the split stratified?</div><div class="answer">Fraudulent posts may be the minority class. Stratification preserves the class ratio in train and test sets so the test set does not accidentally omit or underrepresent a class.</div></div>
+  <div class="qa"><div class="q">Q8. Why use a fixed random seed?</div><div class="answer">A fixed seed makes the hold-out comparison reproducible during development and demos. In a stronger evaluation process I would also use repeated stratified cross-validation and report variation, not just one split.</div></div>
+  <div class="qa"><div class="q">Q9. What is data leakage and how do you avoid it?</div><div class="answer">Leakage occurs when information from the test set influences training. The vectorizer is fit only on the training text before test transformation. Only after evaluation do we create a separate full-data vectorizer and refit final screening models on all labeled rows.</div></div>
+  <div class="qa"><div class="q">Q10. Which metric matters most?</div><div class="answer">It depends on the cost of errors. Recall matters because missing a fraudulent post is risky; precision matters because too many legitimate posts sent for review reduce trust; F1 balances both. The UI displays all four and recommends a model by recall first, then precision, while ranking the comparison table by F1.</div></div>
+  <div class="qa"><div class="q">Q11. Why not optimize accuracy?</div><div class="answer">Accuracy can look good on imbalanced data even when the minority class is handled poorly. A fraud-screening workflow needs class-specific metrics, especially recall and precision, rather than a single overall correctness number.</div></div>
+  <div class="qa"><div class="q">Q12. Is the score a probability?</div><div class="answer">No. It is the model’s class-1 probability-like output and is shown as a model score. It is not calibrated evidence that the listing has that exact chance of being fraudulent. Calibration curves, Platt scaling or isotonic calibration would be future work.</div></div>
+  <div class="qa"><div class="q">Q13. How does the application handle missing fields?</div><div class="answer">The composer skips null and blank values. The prediction path rejects a record only when the complete composed text is empty, so users can analyze a post with only some fields populated.</div></div>
+  <div class="qa"><div class="q">Q14. What happens with an invalid dataset?</div><div class="answer">The loader rejects unsupported extensions, oversized files, malformed ZIPs and ambiguous multi-CSV archives. The detector raises clear errors for missing labels, empty labels, unsupported label values and insufficient examples of either class. The Streamlit UI catches expected validation errors and displays them.</div></div>
+  <div class="qa"><div class="q">Q15. Why store only a summary?</div><div class="answer">The job description may contain personal or sensitive information. Storing only title, result, score, model and timestamp follows data minimization and limits unnecessary retention. It does not eliminate all privacy risk because titles and local database access still need protection.</div></div>
+  <div class="qa"><div class="q">Q16. Is the database secure?</div><div class="answer">It is lightweight local persistence, not a hardened security system. SQL writes are parameterized and constraints protect value ranges, but there is no authentication, encryption or multi-user isolation. I would address those before deploying it for sensitive or shared use.</div></div>
+  <div class="qa"><div class="q">Q17. Why Streamlit?</div><div class="answer">Streamlit enabled a usable data/ML interface quickly while keeping the portfolio project in Python. It is suitable for a local prototype. For a multi-user production product, I would separate a frontend, API, model service and managed database.</div></div>
+  <div class="qa"><div class="q">Q18. How does Streamlit state work here?</div><div class="answer">Streamlit reruns the script when controls change, so trained results, form values and the latest prediction are kept in <code>st.session_state</code>. <code>MODEL_SOURCE_VERSION</code> prevents default retraining on every rerun during a session; uploading or reloading a dataset explicitly replaces the stored training result.</div></div>
+  <div class="qa"><div class="q">Q19. What are the main limitations?</div><div class="answer">It is text-only, wording can drift, the score is not calibrated, small hold-out sets can be unstable, the synthetic fallback is not performance evidence, there is no authentication, and the current test suite does not cover UI behavior or production monitoring.</div></div>
+  <div class="qa"><div class="q">Q20. How would you improve evaluation?</div><div class="answer">Use a representative real dataset, remove duplicates, perform repeated stratified cross-validation, report confidence intervals, inspect the confusion matrix and false negatives, test temporal generalization, tune the threshold against explicit costs, calibrate scores, and keep a final untouched test set.</div></div>
+  <div class="qa"><div class="q">Q21. How would you improve the ML model?</div><div class="answer">Start with better labels and leakage checks. Then compare character n-grams for obfuscated wording, calibrated linear models, threshold tuning, class-specific error analysis, and possibly a transformer embedding model if latency, privacy and data volume justify it. I would keep the simple baseline for comparison.</div></div>
+  <div class="qa"><div class="q">Q22. How would you deploy it?</div><div class="answer">Package dependencies, pin a tested environment, put the model artifact behind a versioned service, move history to a managed database, add authentication and authorization, protect uploads, add monitoring for drift and false negatives, and make the model/data version visible in each result. Streamlit can remain the first UI layer.</div></div>
+  <div class="qa"><div class="q">Q23. What tests would you add next?</div><div class="answer">Tests for every supported label alias, malformed encodings, multiple CSV ZIPs, oversized input, empty/duplicate text, a one-row edge case, deterministic repeated training, threshold boundaries at 0.4/0.5/0.6, database limit clamping, and browser-level tests for upload, training and prediction flows.</div></div>
+  <div class="qa"><div class="q">Q24. Tell me about a trade-off you made.</div><div class="answer">I favored recall in the default model recommendation because a false negative can leave a user exposed to a scam. That intentionally accepts more false positives, but the workflow is human review, so surfacing a suspicious legitimate post is less damaging than silently missing a risky one.</div></div>
+  <div class="qa"><div class="q">Q25. What would you say if asked whether this is production-ready?</div><div class="answer">I would call it a well-structured prototype or portfolio application, not production-ready. The core flow is tested and has useful input validation, but production would require real-data validation, calibration, monitoring, security, authentication, deployment controls, privacy review and a clearer human-review process.</div></div>
+
+  <h2>14. Final interview checklist</h2>
+  <ul>
+    <li>State the problem and user before naming libraries.</li>
+    <li>Explain the exact pipeline: fields → composed text → TF-IDF → models → metrics → full-data refit → prediction.</li>
+    <li>Say “score,” not “guaranteed probability.”</li>
+    <li>Explain why recall and false negatives matter.</li>
+    <li>Be precise about what is and is not persisted.</li>
+    <li>Admit that synthetic metrics are not production evidence.</li>
+    <li>Mention the six automated tests and what they cover.</li>
+    <li>Offer concrete next steps: cross-validation, calibration, threshold tuning, security and monitoring.</li>
+    <li>Never overclaim features that are not in the repository.</li>
+  </ul>
+  <div class="box"><b>Closing answer to memorize:</b> “Postmark is a responsible, lightweight baseline for scam-language screening. Its value is not that it makes perfect fraud decisions; its value is that it creates a reproducible ML workflow, exposes the trade-offs, minimizes retained text, and keeps a human in the loop.”</div>
+</body>
+</html>
